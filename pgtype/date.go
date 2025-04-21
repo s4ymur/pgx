@@ -261,7 +261,25 @@ func (scanPlanBinaryDateToDateScanner) Scan(src []byte, dst any) error {
 	case negativeInfinityDayOffset:
 		return scanner.ScanDate(Date{InfinityModifier: -Infinity, Valid: true})
 	default:
-		t := time.Date(2000, 1, int(1+dayOffset), 0, 0, 0, 0, time.UTC)
+		// PostgreSQL days since 2000-01-01
+		// Positive for dates after 2000-01-01, negative for dates before
+		pgDays := int32(binary.BigEndian.Uint32(src))
+
+		// PostgreSQL's epoch (2000-01-01)
+		pgEpoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+		// For BC dates, days will be negative enough to go before year 1
+		t := pgEpoch.AddDate(0, 0, int(pgDays))
+
+		// Check if we're in BC range (before year 1)
+		if t.Year() <= 0 {
+			// In Gregorian calendar, there is no year 0, but we can get year 0 with time.AddDate() method
+			// So we need to adjust the year by 1 to skip year 0
+			// The same logic is used here:
+			// https://github.com/jackc/pgx/blob/9e7f38cd50ecb627ed4a7a392664e342b7235ca1/pgtype/date.go#L300
+			t = t.AddDate(-1, 0, 0)
+		}
+
 		return scanner.ScanDate(Date{Time: t, Valid: true})
 	}
 }
